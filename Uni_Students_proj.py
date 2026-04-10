@@ -43,7 +43,6 @@ def handle_missing_data(data):
 def handle_duplicates(data):
     """
     Xử lý dữ liệu trùng lặp, tự phát hiện ID.
-    
     Returns:
         DataFrame không trùng lặp
     """
@@ -127,7 +126,6 @@ def handle_inconsistent_data(data):
                 print(f"{col}: Standardized inconsistent values")
     return data
 
-
 def preprocess_dataset(file_path, handle_missing=True, handle_dups=True, 
                     handle_outliers_flag=True, handle_inconsistent=True, 
                     outlier_columns=None):
@@ -197,7 +195,6 @@ def get_data_info(data):
     print(f"\nData types summary:")
     print(data.dtypes)
     print("="*60 + "\n")
-
 
 def main():
     """
