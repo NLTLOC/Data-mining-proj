@@ -191,8 +191,6 @@ def get_data_info(preprocessed_dataset):
     print(f"\nColumn names and types:")
     for col in data.columns:
         print(f"  • {col}: {data[col].dtype}")
-    print(f"\nBasic statistics:")
-    print(data.describe())
     print(f"\nData types summary:")
     print(data.dtypes)
     print(f"\nSample data:")
@@ -226,9 +224,6 @@ def discretize_data(data):
         discretized.append(frozenset(items))
     return discretized
 
-#-----------------------------------
-# NEED EXPLANATION FOR THIS FUNCTION
-#-----------------------------------
 def generate_frequent_itemsets(transactions, min_support):
     """Standard Apriori level-by-level generation. Returns {frozenset: support}."""
     N = len(transactions)
@@ -382,44 +377,45 @@ def cleaned_data_info(file_path=None):
         file_path = os.path.join(script_dir, "Uni_Stu_ds_proj.csv")
 
     cleaned_df = preprocess_dataset(file_path)
+    cleaned_df = cleaned_df.sort_values(by='Final_Result')
     get_data_info(cleaned_df)
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     out = os.path.join(script_dir, "Uni_Stu_cleaned.csv")
     cleaned_df.to_csv(out, index=False, encoding="utf-8", float_format='%.2f')
-    print(f"Cleaned data saved -> {out}\n")
     return cleaned_df
 
 def at_risk_data_info(cleaned_df):
     at_risk_df = identify_at_risk_students(cleaned_df)
+    at_risk_df = at_risk_df.sort_values(by='Final_Result')
     print(f"At-risk students: {len(at_risk_df)}")
     out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Uni_Stu_at_risk.csv")
     at_risk_df.to_csv(out, index=False, encoding="utf-8", float_format='%.2f')
-    print(f"At-risk data saved -> {out}\n")
     return at_risk_df
 
 def main():
     cleaned_df = cleaned_data_info()
     at_risk_df = at_risk_data_info(cleaned_df)
-
+    
     rules = generate_LKH(
         cleaned_df,
-        min_support=0.10,    
-        min_confidence=0.40,
-        min_lift=1.25,
+        min_support=0.14,    
+        min_confidence=0.55,
+        min_lift=1.3,
     )
 
     rules_at_risk = generate_atrisk_rules(
         at_risk_df,
-        min_support=0.08,
-        min_confidence=0.35,
-        min_lift=1.35,
+        min_support=0.12,
+        min_confidence=0.60,
+        min_lift=1.3,
     )
 
     if rules:
         print("=" * 60)
         print("STRONG ASSOCIATION RULES")
         print("=" * 60)
+        print("-" * 60)
         for i, rule in enumerate(rules, 1):
             ant = " AND ".join(sorted(rule['antecedent']))
             con = next(iter(rule['consequent']))
@@ -438,6 +434,7 @@ def main():
         print("\n" + "=" * 60)
         print("AT-RISK ASSOCIATION RULES")
         print("=" * 60)
+        print("-" * 60)
         for i, rule in enumerate(rules_at_risk, 1):
             ant = " AND ".join(sorted(rule['antecedent']))
             con = next(iter(rule['consequent']))
@@ -451,6 +448,5 @@ def main():
         print("="*60)
     else:
         print("No at-risk rules found — try lowering thresholds:")
-
 if __name__ == "__main__":
     main()
