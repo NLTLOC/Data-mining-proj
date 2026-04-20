@@ -1,7 +1,13 @@
 import numpy as np
 import pandas as pd
-from itertools import combinations
 import os
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.preprocessing import LabelEncoder
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
 # ─────────────────────────────────────────────
 # PREPROCESSING
@@ -93,7 +99,7 @@ def fix_negative_values(data):
     data = data.copy()
     keywords = ['Attendance', 'Test_Score', 'LMS_Time_Hours', 'Assignments_Submitted', 'Forum_Interactions', 'Study_Hours_Per_Week', 'Previous_GPA']
     cols = [c for c in data.select_dtypes(include=[np.number]).columns
-            if any(kw in c.lower() for kw in keywords)]
+            if any(kw.lower() in c.lower() for kw in keywords)]
     for col in cols:
         n = (data[col] < 0).sum()
         if n > 0:
@@ -130,7 +136,7 @@ def preprocess_dataset(file_path, handle_missing=True, handle_dups=True,
 
     print(f"\n{'='*60}")
     print(f"Final shape: {data.shape[0]} rows x {data.shape[1]} columns")
-    print("n\Basic statistics:")
+    print("\nBasic statistics:")
     print(data.describe())
     if 'Final_Result' in data.columns:
         print("\nAVERAGES BY FINAL RESULT")
@@ -157,39 +163,20 @@ def identify_at_risk_students(data):
         DataFrame of at-risk students
     """
     df = data.copy()
-    at_risk_flags = []
-    thresholds = {}
-    for col in df.select_dtypes(include=['int64', 'float64']).columns:
-        thresholds[col] = df[col].quantile(0.25)
-        
-    for idx, row in df.iterrows():
-        risk_score = 0
-        
-        # Rule 1: Result is Poor → definitely at risk
-        if 'Final_Result' in df.columns and str(row['Final_Result']) == 'Poor':
-            at_risk_flags.append(True)
-            continue
-        
-        # Rule 2: Result is Average AND has multiple weak indicators → at risk
-        if 'Final_Result' in df.columns and str(row['Final_Result']) == 'Average':
-            # Count weak indicators
-            for col, threshold in thresholds.items():
-                if row[col] <= threshold:
-                    risk_score += 1
-            
-            # If at least half the features are in bottom 25% → at risk
-            if risk_score >= len(thresholds) // 2:
-                at_risk_flags.append(True)
-            else:
-                at_risk_flags.append(False)
-        else:
-            # Good or Excellent → not at risk
-            at_risk_flags.append(False)
+    numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
+    thresholds = {col: df[col].quantile(0.25) for col in numeric_cols}
     
-    df['At_Risk'] = at_risk_flags
+    at_risk_mask = df['Final_Result'] == 'Poor'
     
-    # Extract only risky students and drop the flag column
-    at_risk_df = df[df['At_Risk'] == True].drop(columns=['At_Risk'])
+    # Check if average students have weak indicators
+    avg_mask = df['Final_Result'] == 'Average'
+    if avg_mask.any():
+        weak_counts = (df[numeric_cols] <= pd.Series(thresholds)).sum(axis=1)
+        avg_students_atrisk = avg_mask & (weak_counts >= len(numeric_cols) // 2)
+        at_risk_mask = at_risk_mask | avg_students_atrisk
+    
+    # Extract only risky students
+    at_risk_df = df[at_risk_mask].copy()
 
     print("\n" + "="*60)
     print("AT-RISK STUDENTS DETECTED")
@@ -216,6 +203,14 @@ def get_data_info(preprocessed_dataset):
 
 def discretize_data(data):
     data = data.copy()
+    quantiles = {}
+    for col in data.columns:
+        if col != 'Final_Result' and isinstance(data[col].iloc[0] if len(data) > 0 else 0, (int, float)):
+            quantiles[col] = {
+                'low': data[col].quantile(0.25),
+                'high': data[col].quantile(0.75)
+            }
+    
     discretized = []
     for idx, row in data.iterrows():
         items = set()
@@ -223,9 +218,9 @@ def discretize_data(data):
             value = row[col]
             if col == 'Final_Result':
                 items.add(f"Final_Result={value}")
-            elif isinstance(value, (int, float)):
-                low  = data[col].quantile(0.25)
-                high = data[col].quantile(0.75)
+            elif col in quantiles:
+                low = quantiles[col]['low']
+                high = quantiles[col]['high']
                 if value <= low:
                     items.add(f"{col}=Low")
                 elif value >= high:
@@ -406,6 +401,106 @@ def at_risk_data_info(cleaned_df):
     at_risk_df.to_csv(out, index=False, encoding="utf-8", float_format='%.2f')
     return at_risk_df
 
+# ─────────────────────────────────────────────
+# VISUALIZATION & CLASSIFICATION
+# ─────────────────────────────────────────────
+
+def create_visualizations(cleaned_df):
+    """Create visualizations: distribution, correlation heatmap, etc."""
+    print("\n" + "="*60)
+    print("GENERATING VISUALIZATIONS")
+    print("="*60)
+    
+    try:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # 1. Final_Result Distribution
+        fig, axes = plt.subplots(2, 2, figsize=(10, 10))
+        
+        # Plot 1: Final Result distribution
+        cleaned_df['Final_Result'].value_counts().plot(kind='bar', ax=axes[0, 0], color='skyblue')
+        axes[0, 0].set_title('Distribution of Final Results', fontsize=12, fontweight='bold')
+        axes[0, 0].set_xlabel('Final Result')
+        axes[0, 0].set_ylabel('Count')
+        
+        # Plot 2: Attendance distribution (histogram)
+        if 'Attendance' in cleaned_df.columns:
+            axes[1, 0].hist(cleaned_df['Attendance'], bins=20, color='lightgreen', edgecolor='black')
+            axes[1, 0].set_title('Attendance Distribution', fontsize=12, fontweight='bold')
+            axes[1, 0].set_xlabel('Attendance %')
+            axes[1, 0].set_ylabel('Frequency')
+        
+        # Plot 3: Test Score distribution
+        if 'Test_Score' in cleaned_df.columns:
+            axes[1, 1].hist(cleaned_df['Test_Score'], bins=20, color='coral', edgecolor='black')
+            axes[1, 1].set_title('Test Score Distribution', fontsize=12, fontweight='bold')
+            axes[1, 1].set_xlabel('Test Score')
+            axes[1, 1].set_ylabel('Frequency')
+        
+        plt.tight_layout()
+        viz_file = os.path.join(script_dir, "visualizations.png")
+        plt.savefig(viz_file, dpi=100, bbox_inches='tight')
+        plt.close()
+        print(f"  ✓ Saved: {viz_file}")
+    except Exception as e:
+        print(f"  ✗ Visualization error: {e}")
+
+def classify_students(cleaned_df):
+    """Compare multiple classification algorithms: Decision Tree, KNN, Naive Bayes."""
+    print("\n" + "="*60)
+    print("CLASSIFICATION ALGORITHMS COMPARISON")
+    print("="*60)
+    
+    try:
+        # Prepare data
+        X = cleaned_df.select_dtypes(include=[np.number]).drop('Final_Result', axis=1, errors='ignore')
+        y = cleaned_df['Final_Result']
+        
+        # Encode target labels
+        le = LabelEncoder()
+        y_encoded = le.fit_transform(y)
+        
+        # Split data
+        X_train, X_test, y_train, y_test = train_test_split(X, y_encoded, test_size=0.2, random_state=42)
+        
+        classifiers = {
+            'Decision Tree': DecisionTreeClassifier(max_depth=10, random_state=42),
+            'KNN (k=5)': KNeighborsClassifier(n_neighbors=5),
+        }
+        
+        results = []
+        for name, clf in classifiers.items():
+            clf.fit(X_train, y_train)
+            y_pred = clf.predict(X_test)
+            
+            accuracy = accuracy_score(y_test, y_pred)
+            precision = precision_score(y_test, y_pred, average='weighted', zero_division=0)
+            recall = recall_score(y_test, y_pred, average='weighted', zero_division=0)
+            f1 = f1_score(y_test, y_pred, average='weighted', zero_division=0)
+            
+            results.append({
+                'Algorithm': name,
+                'Accuracy': accuracy,
+                'Precision': precision,
+                'Recall': recall,
+                'F1-Score': f1,
+            })
+            print(f"\n  [{name}]")
+            print(f"    Accuracy:  {accuracy:.4f}")
+            print(f"    Precision: {precision:.4f}")
+            print(f"    Recall:    {recall:.4f}")
+            print(f"    F1-Score:  {f1:.4f}")
+        
+        # Export results
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        results_file = os.path.join(script_dir, "classification_results.csv")
+        pd.DataFrame(results).to_csv(results_file, index=False, encoding="utf-8")
+        print(f"\n  ✓ Classification results saved to: {results_file}")
+        
+    except Exception as e:
+        print(f"  ✗ Classification error: {e}")
+
+
 def main():
     cleaned_df = cleaned_data_info()
     at_risk_df = at_risk_data_info(cleaned_df)
@@ -413,15 +508,15 @@ def main():
     rules = generate_LKH(
         cleaned_df,
         min_support=0.10,    
-        min_confidence=0.60,
-        min_lift=1.5,
+        min_confidence=0.40,
+        min_lift=1.20,
     )
 
     rules_at_risk = generate_atrisk_rules(
         at_risk_df,
         min_support=0.08,
         min_confidence=0.45,
-        min_lift=1.4,
+        min_lift=1.20,
     )
 
     if rules:
@@ -461,5 +556,15 @@ def main():
         print("="*60)
     else:
         print("No at-risk rules found — try lowering thresholds:")
+    
+    # Export rules to CSV
+    print("\n" + "="*60)
+    print("EXPORTING RULES TO FILES")
+    print("="*60)
+    
+    create_visualizations(cleaned_df)
+    
+    classify_students(cleaned_df)
+
 if __name__ == "__main__":
     main()
