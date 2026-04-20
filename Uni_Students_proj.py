@@ -113,23 +113,36 @@ def preprocess_dataset(file_path, handle_missing=True, handle_dups=True,
     if missing.any():
         print(f"Missing values:\n{missing[missing > 0]}\n")
 
-    print("\n[Step 1] Cleaning negative values")
+    print("\nCleaning negative values")
     data = fix_negative_values(data)
     if handle_missing:
-        print("\n[Step 2] Handling missing data")
+        print("\n[Step 1] Handling missing data")
         data = handle_missing_data(data)
     if handle_dups:
-        print("\n[Step 3] Handling duplicates")
+        print("\n[Step 2] Handling duplicates")
         data = handle_duplicates(data)
     if handle_inconsistent:
-        print("\n[Step 4] Standardizing inconsistent data")
+        print("\n[Step 3] Standardizing inconsistent data")
         data = handle_inconsistent_data(data)
     if handle_outliers_flag:
-        print("\n[Step 5] Handling outliers (IQR)")
+        print("\n[Step 4] Handling outliers (IQR)")
         data = handle_outliers(data, columns=outlier_columns)
 
     print(f"\n{'='*60}")
     print(f"Final shape: {data.shape[0]} rows x {data.shape[1]} columns")
+    print("n\Basic statistics:")
+    print(data.describe())
+    if 'Final_Result' in data.columns:
+        print("\nAVERAGES BY FINAL RESULT")
+        print(f"{'='*60}")
+        num_cols, _ = detect_column_types(data)
+        result_order = ['Excellent', 'Good', 'Average', 'Poor']
+        present_results = [r for r in result_order if r in data['Final_Result'].values]
+        averages = data.groupby('Final_Result')[num_cols].mean()
+        for result in present_results:
+            print(f"\n  [{result}]  (n={len(data[data['Final_Result'] == result])})")
+            for col in num_cols:
+                print(f"    {col:<30} {averages.loc[result, col]:.2f}")
     print(f"{'='*60}\n")
     return data
 
@@ -269,13 +282,13 @@ def generate_LKH(data, min_support, min_confidence, min_lift):
     Only produces rules where the consequent is Final_Result.
     Args:
         data:            cleaned DataFrame
-        min_support:     minimum support threshold  (0-1)
-        min_confidence:  minimum confidence threshold (0-1)
+        min_support:     minimum support threshold
+        min_confidence:  minimum confidence threshold
         min_lift:        minimum lift threshold
     Returns:
         List of rule dicts sorted by lift descending.
     """
-    print("Discretising data...")
+    print("Discrettizing data...")
     transactions = discretize_data(data)
     N = len(transactions)
     print(f"Transactions: {N}")
@@ -399,16 +412,16 @@ def main():
     
     rules = generate_LKH(
         cleaned_df,
-        min_support=0.14,    
-        min_confidence=0.55,
-        min_lift=1.3,
+        min_support=0.10,    
+        min_confidence=0.60,
+        min_lift=1.5,
     )
 
     rules_at_risk = generate_atrisk_rules(
         at_risk_df,
-        min_support=0.12,
-        min_confidence=0.60,
-        min_lift=1.3,
+        min_support=0.08,
+        min_confidence=0.45,
+        min_lift=1.4,
     )
 
     if rules:
