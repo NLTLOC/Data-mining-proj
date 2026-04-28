@@ -210,7 +210,6 @@ def discretize_data(data):
                 'low': data[col].quantile(0.25),
                 'high': data[col].quantile(0.75)
             }
-    
     discretized = []
     for idx, row in data.iterrows():
         items = set()
